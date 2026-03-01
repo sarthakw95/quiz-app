@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	StatusCorrect       = "correct"
-	StatusIncorrect     = "incorrect"
-	StatusIgnored       = "ignored"
-	StatusInvalidLetter = "invalid_letter"
+	StatusCorrect         = "correct"
+	StatusIncorrect       = "incorrect"
+	StatusInvalidQuestion = "invalid_question"
+	StatusInvalidLetter   = "invalid_letter"
+	StatusAlreadyAnswered = "already_answered"
 )
 
 type Option struct {
@@ -60,7 +61,9 @@ func NewBank() *Bank {
 func BuildQuestions(raw []opentdb.RawQuestion) []Question {
 	questions := make([]Question, 0, len(raw))
 	for _, item := range raw {
-		questions = append(questions, buildQuestion(item))
+		question := buildQuestion(item)
+		question.QuestionID = makeQuestionID(question)
+		questions = append(questions, question)
 	}
 	return questions
 }
@@ -78,6 +81,15 @@ func (b *Bank) AddQuestions(raw []opentdb.RawQuestion) []Question {
 	return questions
 }
 
+func (b *Bank) AddBuiltQuestions(questions []Question) {
+	for _, question := range questions {
+		if question.QuestionID == "" {
+			question.QuestionID = makeQuestionID(question)
+		}
+		b.questions.Store(question.QuestionID, question)
+	}
+}
+
 func (b *Bank) EvaluateResponses(responses []SubmittedResponse) []ResponseResult {
 	results := make([]ResponseResult, 0, len(responses))
 
@@ -86,7 +98,7 @@ func (b *Bank) EvaluateResponses(responses []SubmittedResponse) []ResponseResult
 		if !ok {
 			results = append(results, ResponseResult{
 				QuestionID: response.QuestionID,
-				Status:     StatusIgnored,
+				Status:     StatusInvalidQuestion,
 			})
 			continue
 		}
@@ -95,7 +107,7 @@ func (b *Bank) EvaluateResponses(responses []SubmittedResponse) []ResponseResult
 		if !ok {
 			results = append(results, ResponseResult{
 				QuestionID: response.QuestionID,
-				Status:     StatusIgnored,
+				Status:     StatusInvalidQuestion,
 			})
 			continue
 		}

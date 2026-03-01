@@ -13,7 +13,7 @@ const (
 	defaultAmount = 10
 )
 
-// RawQuestion mirrors the OpenTriviaDB question payload.
+// OpenTriviaDB question payload.
 type RawQuestion struct {
 	Type             string   `json:"type"`
 	Difficulty       string   `json:"difficulty"`
