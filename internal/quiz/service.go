@@ -16,13 +16,25 @@ type Service struct {
 	quizzes  QuizRepository
 	attempts AttemptRepository
 	fetcher  QuestionsFetcher
+
+	quizMetaCache    map[string]QuizMetadata
+	quizQuestions    map[string][]Question
+	leaderboardCache map[string]*leaderboardCache
+}
+
+type leaderboardCache struct {
+	ordered     []LeaderboardEntry
+	indexByUser map[string]int
 }
 
 func NewService(quizzes QuizRepository, attempts AttemptRepository, fetcher QuestionsFetcher) *Service {
 	return &Service{
-		quizzes:  quizzes,
-		attempts: attempts,
-		fetcher:  fetcher,
+		quizzes:          quizzes,
+		attempts:         attempts,
+		fetcher:          fetcher,
+		quizMetaCache:    make(map[string]QuizMetadata),
+		quizQuestions:    make(map[string][]Question),
+		leaderboardCache: make(map[string]*leaderboardCache),
 	}
 }
 
@@ -37,8 +49,13 @@ func (s *Service) EnsureQuiz(ctx context.Context, quizID string, createIfMissing
 		return QuizMetadata{}, ErrQuizNotFound
 	}
 
+	if metadata, ok := s.getCachedQuizMetadata(quizID); ok {
+		return metadata, nil
+	}
+
 	metadata, err := s.quizzes.GetQuizMetadata(ctx, quizID)
 	if err == nil {
+		s.setCachedQuizMetadata(metadata)
 		return metadata, nil
 	}
 	if !errors.Is(err, ErrQuizNotFound) {
@@ -52,6 +69,10 @@ func (s *Service) EnsureQuiz(ctx context.Context, quizID string, createIfMissing
 }
 
 func (s *Service) GetQuizQuestions(ctx context.Context, quizID string, createIfMissing bool, questionCount int) (QuizMetadata, []Question, error) {
+	if metadata, questions, ok := s.getCachedQuiz(quizID); ok {
+		return metadata, questions, nil
+	}
+
 	metadata, err := s.EnsureQuiz(ctx, quizID, createIfMissing, questionCount)
 	if err != nil {
 		return QuizMetadata{}, nil, err
@@ -61,16 +82,12 @@ func (s *Service) GetQuizQuestions(ctx context.Context, quizID string, createIfM
 	if err != nil {
 		return QuizMetadata{}, nil, err
 	}
+	s.setCachedQuiz(metadata, questions)
 	return metadata, questions, nil
 }
 
 func (s *Service) EvaluateResponsesForQuiz(ctx context.Context, quizID string, responses []SubmittedResponse) ([]ResponseResult, error) {
-	metadata, err := s.EnsureQuiz(ctx, quizID, false, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	questions, err := s.quizzes.GetQuizQuestions(ctx, metadata.QuizID)
+	_, questions, err := s.GetQuizQuestions(ctx, quizID, false, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -133,16 +150,32 @@ func (s *Service) SubmitResponses(ctx context.Context, quizID, username string, 
 		return nil, err
 	}
 
-	return s.attempts.SubmitResponses(ctx, metadata.QuizID, usernameNormalized, responses)
+	results, err := s.attempts.SubmitResponses(ctx, metadata.QuizID, usernameNormalized, responses)
+	if err != nil {
+		return nil, err
+	}
+
+	s.updateCachedLeaderboardAfterSubmission(metadata.QuizID, usernameNormalized, results)
+	return results, nil
 }
 
-func (s *Service) GetLeaderboard(ctx context.Context, quizID string) ([]LeaderboardEntry, error) {
+func (s *Service) GetLeaderboard(ctx context.Context, quizID string, limit int) ([]LeaderboardEntry, error) {
 	metadata, err := s.EnsureQuiz(ctx, quizID, false, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.attempts.GetLeaderboard(ctx, metadata.QuizID)
+	if entries, ok := s.getCachedLeaderboard(metadata.QuizID); ok {
+		return applyLeaderboardLimit(entries, limit), nil
+	}
+
+	entries, err := s.attempts.GetLeaderboard(ctx, metadata.QuizID)
+	if err != nil {
+		return nil, err
+	}
+
+	s.setCachedLeaderboard(metadata.QuizID, entries)
+	return applyLeaderboardLimit(entries, limit), nil
 }
 
 func (s *Service) ListActiveQuizzes(ctx context.Context, limit int) ([]QuizMetadata, error) {
@@ -154,8 +187,13 @@ func (s *Service) createQuizWithID(ctx context.Context, quizID string, questionC
 		return QuizMetadata{}, errors.New("question fetcher is not configured")
 	}
 
+	if metadata, ok := s.getCachedQuizMetadata(quizID); ok {
+		return metadata, nil
+	}
+
 	existing, err := s.quizzes.GetQuizMetadata(ctx, quizID)
 	if err == nil {
+		s.setCachedQuizMetadata(existing)
 		return existing, nil
 	}
 	if !errors.Is(err, ErrQuizNotFound) {
@@ -178,11 +216,13 @@ func (s *Service) createQuizWithID(ctx context.Context, quizID string, questionC
 	if err := s.quizzes.CreateQuiz(ctx, metadata, questions); err != nil {
 		existing, lookupErr := s.quizzes.GetQuizMetadata(ctx, quizID)
 		if lookupErr == nil {
+			s.setCachedQuizMetadata(existing)
 			return existing, nil
 		}
 		return QuizMetadata{}, err
 	}
 
+	s.setCachedQuiz(metadata, questions)
 	return metadata, nil
 }
 
@@ -205,4 +245,124 @@ func generateQuizID() string {
 		builder.WriteByte(alphabet[rand.Intn(len(alphabet))])
 	}
 	return builder.String()
+}
+
+func (s *Service) getCachedQuizMetadata(quizID string) (QuizMetadata, bool) {
+	metadata, ok := s.quizMetaCache[quizID]
+	return metadata, ok
+}
+
+func (s *Service) setCachedQuizMetadata(metadata QuizMetadata) {
+	s.quizMetaCache[metadata.QuizID] = metadata
+}
+
+func (s *Service) getCachedQuiz(quizID string) (QuizMetadata, []Question, bool) {
+	metadata, metaOK := s.quizMetaCache[quizID]
+	questions, questionsOK := s.quizQuestions[quizID]
+	if !metaOK || !questionsOK {
+		return QuizMetadata{}, nil, false
+	}
+	return metadata, questions, true
+}
+
+func (s *Service) setCachedQuiz(metadata QuizMetadata, questions []Question) {
+	s.quizMetaCache[metadata.QuizID] = metadata
+	s.quizQuestions[metadata.QuizID] = questions
+}
+
+func (s *Service) getCachedLeaderboard(quizID string) ([]LeaderboardEntry, bool) {
+	cache, ok := s.leaderboardCache[quizID]
+	if !ok || cache == nil {
+		return nil, false
+	}
+	return cache.ordered, true
+}
+
+func (s *Service) setCachedLeaderboard(quizID string, entries []LeaderboardEntry) {
+	indexByUser := make(map[string]int, len(entries))
+	for idx := range entries {
+		indexByUser[entries[idx].Username] = idx
+	}
+
+	s.leaderboardCache[quizID] = &leaderboardCache{
+		ordered:     entries,
+		indexByUser: indexByUser,
+	}
+}
+
+func (s *Service) updateCachedLeaderboardAfterSubmission(quizID, username string, results []ResponseResult) {
+	cache, ok := s.leaderboardCache[quizID]
+	if !ok || cache == nil {
+		return
+	}
+
+	newAnswers := 0
+	scoreDelta := 0
+	for _, result := range results {
+		switch result.Status {
+		case StatusCorrect:
+			newAnswers++
+			scoreDelta++
+		case StatusIncorrect:
+			newAnswers++
+		}
+	}
+	if newAnswers == 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	idx, exists := cache.indexByUser[username]
+	if !exists {
+		cache.ordered = append(cache.ordered, LeaderboardEntry{
+			Username:         username,
+			TotalScore:       scoreDelta,
+			AnsweredCount:    newAnswers,
+			LastSubmissionAt: now,
+		})
+		idx = len(cache.ordered) - 1
+		cache.indexByUser[username] = idx
+		s.bubbleLeaderboard(cache, idx)
+		return
+	}
+
+	cache.ordered[idx].TotalScore += scoreDelta
+	cache.ordered[idx].AnsweredCount += newAnswers
+	cache.ordered[idx].LastSubmissionAt = now
+	s.bubbleLeaderboard(cache, idx)
+}
+
+func (s *Service) bubbleLeaderboard(cache *leaderboardCache, idx int) {
+	for idx > 0 && leaderboardBefore(cache.ordered[idx], cache.ordered[idx-1]) {
+		s.swapLeaderboardEntries(cache, idx, idx-1)
+		idx--
+	}
+
+	for idx+1 < len(cache.ordered) && leaderboardBefore(cache.ordered[idx+1], cache.ordered[idx]) {
+		s.swapLeaderboardEntries(cache, idx, idx+1)
+		idx++
+	}
+}
+
+func (s *Service) swapLeaderboardEntries(cache *leaderboardCache, i, j int) {
+	cache.ordered[i], cache.ordered[j] = cache.ordered[j], cache.ordered[i]
+	cache.indexByUser[cache.ordered[i].Username] = i
+	cache.indexByUser[cache.ordered[j].Username] = j
+}
+
+func leaderboardBefore(a, b LeaderboardEntry) bool {
+	if a.TotalScore != b.TotalScore {
+		return a.TotalScore > b.TotalScore
+	}
+	if !a.LastSubmissionAt.Equal(b.LastSubmissionAt) {
+		return a.LastSubmissionAt.Before(b.LastSubmissionAt)
+	}
+	return a.Username < b.Username
+}
+
+func applyLeaderboardLimit(entries []LeaderboardEntry, limit int) []LeaderboardEntry {
+	if limit <= 0 || limit >= len(entries) {
+		return entries
+	}
+	return entries[:limit]
 }

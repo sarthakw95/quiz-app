@@ -275,7 +275,13 @@ func (a *API) HandleLeaderboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, err := a.service.GetLeaderboard(r.Context(), quizID)
+	limit, err := parseLeaderboardLimit(r, 10)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
+		return
+	}
+
+	entries, err := a.service.GetLeaderboard(r.Context(), quizID, limit)
 	if err != nil {
 		writeServiceError(w, err)
 		return
@@ -359,6 +365,20 @@ func parseIntParam(r *http.Request, key string, defaultValue int) (int, error) {
 	if err != nil || parsed <= 0 {
 		return 0, errors.New(key + " must be a positive integer")
 	}
+	return parsed, nil
+}
+
+func parseLeaderboardLimit(r *http.Request, defaultValue int) (int, error) {
+	value := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if value == "" {
+		return defaultValue, nil
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, errors.New("limit must be an integer")
+	}
+	// <=0 means "entire leaderboard".
 	return parsed, nil
 }
 
