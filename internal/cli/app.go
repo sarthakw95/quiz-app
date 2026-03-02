@@ -16,12 +16,33 @@ const (
 	questionCount = 10
 )
 
+// Run executes a complete single-player quiz session in the terminal.
+//
+// Why this function is structured as an orchestration flow:
+//   - It keeps domain transformation (`quiz.BuildQuestions`) separate from transport
+//     concerns (`opentdb.FetchQuestions`) and presentation (`printQuestion`).
+//   - It keeps scoring local and explicit (`score` integer) so the session behavior
+//     is easy to reason about and explain during review/presentation.
+//   - It treats invalid/failed input for a single question as a skip (not fatal),
+//     but treats upstream fetch failure as fatal because no quiz can proceed without
+//     source questions.
+//
+// Behavior summary:
+// 1. Fetch and normalize questions.
+// 2. Iterate question-by-question, prompting for one option letter.
+// 3. Allow up to maxAttempts invalid inputs per question.
+// 4. Score only successfully answered questions; skipped questions reveal the answer.
+// 5. Print final score against total fetched questions.
 func Run(ctx context.Context, in io.Reader, out io.Writer) error {
+	// The CLI intentionally fetches fresh questions for each run instead of caching.
+	// This keeps the command stateless and avoids persistence concerns in this mode.
 	rawQuestions, err := opentdb.FetchQuestions(ctx, questionCount)
 	if err != nil {
 		return err
 	}
 
+	// Transform third-party response shape into local domain shape once, so the rest
+	// of the flow only depends on internal quiz models.
 	questions := quiz.BuildQuestions(rawQuestions)
 	reader := bufio.NewReader(in)
 	score := 0
@@ -33,6 +54,8 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 		fmt.Fprintln(out)
 		correctText := optionTextForIndex(question.Options, question.CorrectIndex)
 		if !ok {
+			// After repeated invalid input, treat the question as skipped to keep quiz
+			// progress moving rather than blocking the session.
 			fmt.Fprintf(out, "Skipping. Correct answer was %s\n\n", correctText)
 			continue
 		}
@@ -51,6 +74,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer) error {
 	return nil
 }
 
+// printQuestion renders one question and its options in a consistent format.
 func printQuestion(out io.Writer, number int, question quiz.Question) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Q%d: %s\n\n", number, question.Question)
@@ -60,6 +84,11 @@ func printQuestion(out io.Writer, number int, question quiz.Question) {
 	fmt.Fprintln(out)
 }
 
+// getAnswer reads a single-letter option from stdin and validates it against the
+// available option range (A..max). It returns (index, true) on success.
+// maxAttempts deliberately caps retries so malformed input cannot trap the CLI in
+// an infinite prompt loop. On repeated invalid input or read failure it returns
+// (-1, false).
 func getAnswer(reader *bufio.Reader, out io.Writer, optionCount int) (int, bool) {
 	if optionCount < 1 {
 		return -1, false
@@ -89,6 +118,7 @@ func getAnswer(reader *bufio.Reader, out io.Writer, optionCount int) (int, bool)
 	return -1, false
 }
 
+// optionTextForIndex safely resolves option text by index.
 func optionTextForIndex(options []quiz.Option, index int) string {
 	if index < 0 || index >= len(options) {
 		return ""

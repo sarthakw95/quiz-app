@@ -185,6 +185,8 @@ func runPlay(ctx context.Context, reader *bufio.Reader, out io.Writer, client *H
 				return nil
 			}
 
+			// Reuse the requested quiz_id so multiple users can converge on the same
+			// shareable quiz identifier after a coordinated "create if missing" flow.
 			payload, err = client.GetQuizQuestions(ctx, quizID, username, true, defaultQuestionCount)
 			if err != nil {
 				return describeClientError(err, serverURL)
@@ -205,6 +207,7 @@ func runPlayWithPayload(reader *bufio.Reader, out io.Writer, client *HTTPClient,
 	oldScore := 0.0
 	fresh := make([]questionItem, 0, len(payload.Questions))
 	for _, item := range payload.Questions {
+		// Treat either signal as attempted to remain compatible with incremental API evolution.
 		attempted := item.AttemptStatus == attemptStatusAlreadyAttempt || item.AttemptScore != nil
 		if attempted {
 			oldPossible += 1.0
@@ -251,6 +254,7 @@ func runPlayWithPayload(reader *bufio.Reader, out io.Writer, client *HTTPClient,
 			}
 
 			answerIndex := int(answer[0] - 'A')
+			// Invalid/auto-skipped questions are excluded from denominator by design.
 			newPossible += 1.0
 			if answerIndex == question.CorrectIndex {
 				newScore += 1.0
@@ -277,6 +281,7 @@ func runPlayWithPayload(reader *bufio.Reader, out io.Writer, client *HTTPClient,
 
 func fireAndForgetPersistence(client *HTTPClient, quizID, username, questionID, answer string) {
 	// Intentional tradeoff: best-effort persistence per question to reduce loss on mid-quiz disconnects.
+	// These async writes can complete out of order, but each (quiz,question,user) key is idempotent on server.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), defaultPersistTimeout)
 		defer cancel()
@@ -370,16 +375,4 @@ func describeClientError(err error, serverURL string) error {
 		return fmt.Errorf("quiz service unavailable at %s", serverURL)
 	}
 	return err
-}
-
-func parseTime(value string) (time.Time, error) {
-	parsed, err := time.Parse(time.RFC3339Nano, value)
-	if err == nil {
-		return parsed.UTC(), nil
-	}
-	parsed, err = time.Parse(time.RFC3339, value)
-	if err == nil {
-		return parsed.UTC(), nil
-	}
-	return time.Time{}, err
 }

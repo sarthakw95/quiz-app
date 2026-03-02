@@ -35,8 +35,7 @@ func NewRouterWithOptions(service *quiz.Service, bank *quiz.Bank, options Router
 }
 
 func debugRequestLoggingMiddleware(next http.Handler) http.Handler {
-	const maxLoggedResponseBytes = 4096
-
+	const maxLoggedResponseBytes = 128
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		recorder := &statusRecorder{

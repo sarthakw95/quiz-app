@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"quiz-app/internal/quiz"
 )
@@ -34,6 +35,9 @@ type HTTPClient struct {
 	httpClient *http.Client
 }
 
+// For this project we intentionally return enough data for local scoring
+// (including correct_index) to keep the client flow simple and stateless.
+// This is a trust-the-client tradeoff rather than a secure exam model.
 type questionItem struct {
 	QuestionID    string        `json:"question_id"`
 	Question      string        `json:"question"`
@@ -200,6 +204,14 @@ func (c *HTTPClient) PersistSingleResponse(ctx context.Context, quizID, username
 	return c.doJSON(ctx, http.MethodPost, "/responses", request, nil)
 }
 
+func parseTime(value string) (time.Time, error) {
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err == nil {
+		return parsed.UTC(), nil
+	}
+	return time.Time{}, err
+}
+
 func (c *HTTPClient) doJSON(ctx context.Context, method, path string, requestBody any, responseBody any) error {
 	fullURL := c.baseURL + path
 
@@ -228,6 +240,8 @@ func (c *HTTPClient) doJSON(ctx context.Context, method, path string, requestBod
 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		apiErr := APIError{StatusCode: response.StatusCode}
+		// Prefer server-provided error text when available so CLI feedback matches
+		// handler-level validation/reasoning.
 		var payload errorResponse
 		if err := json.NewDecoder(response.Body).Decode(&payload); err == nil && strings.TrimSpace(payload.Error) != "" {
 			apiErr.Message = payload.Error

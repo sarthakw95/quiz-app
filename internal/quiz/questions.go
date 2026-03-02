@@ -161,6 +161,8 @@ func ToPublicQuestions(questions []Question) []PublicQuestion {
 }
 
 func makeQuestionID(question Question) string {
+	const hashChars = 12
+
 	var keyBuilder strings.Builder
 	keyBuilder.WriteString(question.Question)
 	for _, option := range question.Options {
@@ -169,7 +171,8 @@ func makeQuestionID(question Question) string {
 	}
 
 	hash := sha1.Sum([]byte(keyBuilder.String()))
-	return "q_" + hex.EncodeToString(hash[:])
+	encoded := hex.EncodeToString(hash[:])
+	return "q_" + encoded[:hashChars]
 }
 
 func normalizeLetter(answer string) string {

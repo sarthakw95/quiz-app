@@ -47,6 +47,8 @@ func (s *SQLiteStore) Close() error {
 }
 
 func (s *SQLiteStore) initSchema(ctx context.Context) error {
+	// Schema intentionally avoids FK constraints for this demo so quiz overwrite/reset
+	// flows stay simple and fully controlled by application transactions.
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS quizzes (
 			quiz_id TEXT PRIMARY KEY,
@@ -75,6 +77,7 @@ func (s *SQLiteStore) initSchema(ctx context.Context) error {
 			question_id TEXT NOT NULL,
 			username_norm TEXT NOT NULL,
 			answer_letter TEXT NOT NULL,
+			-- REAL keeps scoring model expandable (partial/negative marks) without migration.
 			score REAL NOT NULL,
 			submitted_at_unix INTEGER NOT NULL,
 			PRIMARY KEY (quiz_id, question_id, username_norm)
@@ -424,6 +427,8 @@ func (s *SQLiteStore) SubmitResponses(ctx context.Context, quizID, usernameNorma
 			return nil, err
 		}
 		if inserted == 0 {
+			// Duplicate answer for (quiz, question, user): keep original row unchanged
+			// and return previously persisted score for consistent client reconciliation.
 			status = StatusAlreadyAnswered
 
 			var existingScore float64
@@ -464,12 +469,17 @@ func (s *SQLiteStore) GetLeaderboard(ctx context.Context, quizID string) ([]Lead
 		return nil, ErrQuizNotFound
 	}
 
+	// Returning all leaderboard entries is intentional for this demo. This simplifies 
+	// the leaderboard display logic and avoids pagination complexity and cache compatibility. 
+	// It is possible that the size becomes very large, and the limit is used only to limit the number of entries displayed.
+	// In production, it is recommended to use pagination to limit the number of entries displayed.
 	rows, err := s.db.QueryContext(
 		ctx,
 		`SELECT username_norm, SUM(score) AS total_score, COUNT(*) AS answered_count, MAX(submitted_at_unix) AS last_submission
 		 FROM attempts
 		 WHERE quiz_id = ?
 		 GROUP BY username_norm
+		 -- Keep ordering deterministic and aligned with in-memory cache comparison.
 		 ORDER BY total_score DESC, last_submission ASC, username_norm ASC`,
 		quizID,
 	)

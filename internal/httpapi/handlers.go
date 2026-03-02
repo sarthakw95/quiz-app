@@ -189,6 +189,7 @@ func (a *API) HandleResponses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if quizID != "" {
+		// Preserve useful quiz-scoped validation even when caller is unauthenticated.
 		results, err = a.service.EvaluateResponsesForQuiz(r.Context(), quizID, request.Responses)
 		if err != nil {
 			writeServiceError(w, err)
@@ -199,6 +200,7 @@ func (a *API) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if quizID == "" || username == "" {
+		// Explicitly signal that answers were processed but not persisted for leaderboard usage.
 		warnings = append(warnings, "responses are not linked to leaderboard unless both quiz_id and username are provided")
 	}
 
@@ -382,6 +384,9 @@ func writeServiceError(w http.ResponseWriter, err error) {
 func toQuestionResponses(questions []quiz.Question, attemptScores map[string]float64) []questionResponse {
 	response := make([]questionResponse, 0, len(questions))
 	for _, question := range questions {
+		// Intentionally expose correct_index because the current user client scores
+		// locally and persists answers asynchronously. This is simpler for this demo
+		// but not suitable for adversarial clients.
 		item := questionResponse{
 			QuestionID:    question.QuestionID,
 			Question:      question.Question,

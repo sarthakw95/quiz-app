@@ -12,6 +12,9 @@ import (
 
 type QuestionsFetcher func(ctx context.Context, amount int) ([]opentdb.RawQuestion, error)
 
+// Service intentionally keeps cache state lock-free for this demo to keep code paths small.
+// Under high concurrent request volume, cache reads/writes can race and return stale snapshots.
+// We accept that tradeoff here because expected QPS is low and DB remains source of truth.
 type Service struct {
 	quizzes  QuizRepository
 	attempts AttemptRepository
@@ -301,11 +304,13 @@ func (s *Service) getCachedLeaderboard(quizID string) ([]LeaderboardEntry, bool)
 	if !ok || cache == nil {
 		return nil, false
 	}
+	// Return direct cached memory for simplicity; caller treats result as read-only.
 	return cache.ordered, true
 }
 
 func (s *Service) getCachedAttemptScores(quizID, usernameNormalized string) (map[string]float64, bool) {
 	scores, ok := s.attemptScores[attemptScoresCacheKey(quizID, usernameNormalized)]
+	// Map is shared cache state; callers should only read from the returned map.
 	return scores, ok
 }
 
@@ -329,6 +334,8 @@ func (s *Service) setCachedLeaderboard(quizID string, entries []LeaderboardEntry
 }
 
 func (s *Service) updateCachedAttemptScoresAfterSubmission(quizID, usernameNormalized string, results []ResponseResult) {
+	// Keep writes cheap: only patch attempt-score cache if this user+quiz cache was
+	// already materialized by a previous read. Otherwise, it is rebuilt from DB on demand.
 	scores, ok := s.getCachedAttemptScores(quizID, usernameNormalized)
 	if !ok {
 		return
@@ -354,6 +361,9 @@ func (s *Service) updateCachedLeaderboardAfterSubmission(quizID, username string
 		return
 	}
 
+	// Maintain ordering incrementally so we do not rerun DB SUM/GROUP BY on every submit.
+	// Current scoring model is binary (correct=1, incorrect=0), but this can be swapped
+	// to use result.AttemptScore when richer per-question scoring is introduced.
 	newAnswers := 0
 	scoreDelta := 0.0
 	for _, result := range results {
@@ -395,6 +405,8 @@ func attemptScoresCacheKey(quizID, usernameNormalized string) string {
 }
 
 func (s *Service) bubbleLeaderboard(cache *leaderboardCache, idx int) {
+	// Only one user row changes per submission, so local bubbling is enough to
+	// restore ordering in O(distance moved) instead of re-sorting the full slice.
 	for idx > 0 && leaderboardBefore(cache.ordered[idx], cache.ordered[idx-1]) {
 		s.swapLeaderboardEntries(cache, idx, idx-1)
 		idx--
@@ -413,6 +425,10 @@ func (s *Service) swapLeaderboardEntries(cache *leaderboardCache, i, j int) {
 }
 
 func leaderboardBefore(a, b LeaderboardEntry) bool {
+	// Ranking policy:
+	// 1) higher score first
+	// 2) earlier final submission wins ties
+	// 3) username lexical order for deterministic output
 	if a.TotalScore != b.TotalScore {
 		return a.TotalScore > b.TotalScore
 	}
