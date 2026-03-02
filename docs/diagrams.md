@@ -33,7 +33,7 @@ sequenceDiagram
     participant OTDB as OpenTriviaDB
 
     User->>Client: play team-demo-1
-    Client->>API: GET /questions?quiz_id=team-demo-1&username=alice
+    Client->>API: GET /questions?quiz_id=team-demo-1&username=alice&include_correct=true
     API->>Service: GetQuizQuestions
 
     alt quiz exists

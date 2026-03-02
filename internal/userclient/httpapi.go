@@ -35,9 +35,8 @@ type HTTPClient struct {
 	httpClient *http.Client
 }
 
-// For this project we intentionally return enough data for local scoring
-// (including correct_index) to keep the client flow simple and stateless.
-// This is a trust-the-client tradeoff rather than a secure exam model.
+// quiz-user-service intentionally opts into correct_index visibility to keep
+// local scoring straightforward for this demo client flow.
 type questionItem struct {
 	QuestionID    string        `json:"question_id"`
 	Question      string        `json:"question"`
@@ -172,6 +171,7 @@ func (c *HTTPClient) GetQuizQuestions(ctx context.Context, quizID, username stri
 
 	query := url.Values{}
 	query.Set("quiz_id", quizID)
+	query.Set("include_correct", "true")
 	if createIfMissing {
 		query.Set("create_if_missing", "true")
 		if questionCount > 0 {

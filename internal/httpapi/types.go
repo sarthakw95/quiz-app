@@ -16,7 +16,7 @@ type questionResponse struct {
 	QuestionID    string        `json:"question_id"`
 	Question      string        `json:"question"`
 	Options       []quiz.Option `json:"options"`
-	CorrectIndex  int           `json:"correct_index"`
+	CorrectIndex  *int          `json:"correct_index,omitempty"`
 	AttemptStatus string        `json:"attempt_status"`
 	AttemptScore  *float64      `json:"attempt_score,omitempty"`
 }

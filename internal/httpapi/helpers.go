@@ -21,18 +21,18 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	}
 }
 
-func toQuestionResponses(questions []quiz.Question, attemptScores map[string]float64) []questionResponse {
+func toQuestionResponses(questions []quiz.Question, attemptScores map[string]float64, includeCorrectIndex bool) []questionResponse {
 	response := make([]questionResponse, 0, len(questions))
 	for _, question := range questions {
-		// Intentionally expose correct_index because the current user client scores
-		// locally and persists answers asynchronously. This is simpler for this demo
-		// but not suitable for adversarial clients.
 		item := questionResponse{
 			QuestionID:    question.QuestionID,
 			Question:      question.Question,
 			Options:       question.Options,
-			CorrectIndex:  question.CorrectIndex,
 			AttemptStatus: "not_attempted",
+		}
+		if includeCorrectIndex {
+			correctIndex := question.CorrectIndex
+			item.CorrectIndex = &correctIndex
 		}
 		if score, ok := attemptScores[question.QuestionID]; ok {
 			scoreCopy := score

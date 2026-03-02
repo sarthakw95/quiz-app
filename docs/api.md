@@ -6,6 +6,11 @@ Detailed request/response behaviors for the quiz service.
 
 Creates a quiz ID, fetches questions from OpenTriviaDB, and stores quiz + questions.
 
+Notes:
+
+- This endpoint is optional for current demo flows. Clients can create via `GET /questions` when `quiz_id` is omitted or `create_if_missing=true`.
+- For stricter REST semantics, this is the preferred creation endpoint.
+
 Request:
 
 ```json
@@ -54,6 +59,13 @@ Query params:
 - `create_if_missing` (optional bool): if true, create quiz if missing (reusing the same `quiz_id`)
 - `question_count` (optional int, default 10): used when creating a missing quiz or when `quiz_id` is omitted; values above `50` are capped to `50`
 - `username` (optional string): if present with `quiz_id`, response includes which questions were already attempted by this user
+- `include_correct` (optional bool, default `false`): if true, include `correct_index` per question
+
+Side-effect note:
+
+- This endpoint can create server state (new quiz row + questions) when `quiz_id` is omitted, or when `create_if_missing=true` and the quiz does not exist.
+- That creation-on-`GET` behavior is an intentional demo/convenience tradeoff and is not strict REST best practice.
+- Production-style flow should prefer `POST /quizzes` for creation, then `GET /questions?quiz_id=...` for retrieval.
 
 Example:
 
@@ -63,9 +75,12 @@ curl -sS 'localhost:8080/questions?question_count=5'
 
 # Shared quiz id, create only if missing:
 curl -sS 'localhost:8080/questions?quiz_id=shared-team-quiz&create_if_missing=true&question_count=5'
+
+# Client-scoring mode (returns correct_index):
+curl -sS 'localhost:8080/questions?quiz_id=shared-team-quiz&include_correct=true'
 ```
 
-Response (example shape):
+Response (default shape):
 
 ```json
 {
@@ -76,21 +91,26 @@ Response (example shape):
       "question_id": "q_abc123...",
       "question": "Question text",
       "options": [{"letter":"A","text":"..."},{"letter":"B","text":"..."}],
-      "correct_index": 1,
       "attempt_status": "not_attempted"
     },
     {
       "question_id": "q_def456",
       "question": "Another question",
       "options": [{"letter":"A","text":"..."},{"letter":"B","text":"..."}],
-      "correct_index": 0,
       "attempt_status": "already_attempted",
       "attempt_score": 1
     }
   ]
 }
 ```
-Note: `correct_index` is intentionally exposed for the interactive demo client; this is not recommended for adversarial clients.
+
+When `include_correct=true`, each question also includes:
+
+```json
+{ "correct_index": 1 }
+```
+
+Note: `correct_index` is hidden by default and only returned on explicit opt-in; exposing it is still not recommended for adversarial clients.
 
 Status codes:
 

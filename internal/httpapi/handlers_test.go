@@ -110,7 +110,7 @@ func TestToQuestionResponsesAddsAttemptMetadata(t *testing.T) {
 		},
 	}
 
-	got := toQuestionResponses(questions, map[string]float64{"q1": 0.0})
+	got := toQuestionResponses(questions, map[string]float64{"q1": 0.0}, true)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 questions, got %d", len(got))
 	}
@@ -118,8 +118,35 @@ func TestToQuestionResponsesAddsAttemptMetadata(t *testing.T) {
 	if got[0].AttemptStatus != "already_attempted" || got[0].AttemptScore == nil || *got[0].AttemptScore != 0.0 {
 		t.Fatalf("unexpected attempted mapping for q1: %+v", got[0])
 	}
+	if got[0].CorrectIndex == nil || *got[0].CorrectIndex != 0 {
+		t.Fatalf("expected correct_index=0 for q1, got %+v", got[0].CorrectIndex)
+	}
 	if got[1].AttemptStatus != "not_attempted" || got[1].AttemptScore != nil {
 		t.Fatalf("unexpected mapping for unattempted q2: %+v", got[1])
+	}
+	if got[1].CorrectIndex == nil || *got[1].CorrectIndex != 0 {
+		t.Fatalf("expected correct_index=0 for q2, got %+v", got[1].CorrectIndex)
+	}
+}
+
+func TestToQuestionResponsesHidesCorrectIndexByDefault(t *testing.T) {
+	questions := []quiz.Question{
+		{
+			PublicQuestion: quiz.PublicQuestion{
+				QuestionID: "q1",
+				Question:   "Q1",
+				Options:    []quiz.Option{{Letter: "A", Text: "A1"}},
+			},
+			CorrectIndex: 0,
+		},
+	}
+
+	got := toQuestionResponses(questions, nil, false)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 question, got %d", len(got))
+	}
+	if got[0].CorrectIndex != nil {
+		t.Fatalf("expected correct_index to be omitted, got %+v", got[0].CorrectIndex)
 	}
 }
 

@@ -31,6 +31,7 @@ func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 	quizID := strings.TrimSpace(r.URL.Query().Get("quiz_id"))
 	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	createIfMissing := parseBoolParam(r, "create_if_missing")
+	includeCorrectIndex := parseBoolParam(r, "include_correct")
 	questionCount, err := parseQuestionCountParam(r, "question_count", defaultQuestionCount, maxQuestionCount)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
@@ -75,7 +76,7 @@ func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, questionsResponse{
 		QuizID:        metadata.QuizID,
 		QuestionCount: len(questions),
-		Questions:     toQuestionResponses(questions, attemptScores),
+		Questions:     toQuestionResponses(questions, attemptScores, includeCorrectIndex),
 	})
 }
 

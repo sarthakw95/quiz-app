@@ -38,25 +38,23 @@ A small production-style Go backend for creating and playing reusable quizzes.
 go run ./cmd/quiz-service -addr :8080 -db quiz.db
 ```
 
-### 2) Create/fetch a quiz and questions
-
-```bash
-# Create a new quiz with 5 questions
-curl -sS -X POST localhost:8080/quizzes \
-  -H 'Content-Type: application/json' \
-  -d '{"question_count": 5}'
-
-# Fetch questions for a known quiz ID (replace shared-team-quiz as needed)
-curl -sS 'localhost:8080/questions?quiz_id=shared-team-quiz&create_if_missing=true&question_count=5'
-```
-
-### 3) Play from the interactive user client
+### 2) Start the interactive user client
 
 ```bash
 go run ./cmd/quiz-user-service --username alice --server http://127.0.0.1:8080
 ```
 
-Then:
+### 3) Play directly
+
+At the prompt, run:
+
+```text
+play <quiz_id>
+```
+
+Use any identifier for `<quiz_id>` (for example, `play team-demo-1`) and follow the interactive prompts.
+
+Other commands:
 
 - `quizzes [limit]`
 - `leaderboard <quiz_id> [limit]`
@@ -135,7 +133,7 @@ go run ./cmd/quiz-service -addr :9090 -db /tmp/quiz.db
 
 | Method | Path                             | Purpose                                             |
 | ------ | -------------------------------- | --------------------------------------------------- |
-| `GET`  | `/questions`                     | fetch quiz questions (new quiz if `quiz_id` absent) |
+| `GET`  | `/questions`                     | fetch quiz questions (can create if `quiz_id` absent or create-if-missing) |
 | `POST` | `/responses`                     | submit/evaluate responses                           |
 | `POST` | `/quizzes`                       | create a quiz                                       |
 | `GET`  | `/quizzes/active`                | list recently created quizzes                       |
@@ -165,9 +163,10 @@ This enforces: *a user can answer a question once per quiz*, while still allowin
 - **Unauthenticated usernames**: `username` is a plain string for now; normalization is `strings.ToLower(strings.TrimSpace(username))`.
 - **Idempotency on duplicates**: duplicate submits return `already_answered` and the previously stored score (if previously submitted successfully).
 - **Best-effort client persistence**: `quiz-user-service` persists per question asynchronously to reduce loss on mid-quiz exit.
-- **Correct answer exposure**: `correct_index` is returned to support the demo client scoring UX; production should not do this.
+- **Correct answer exposure**: `correct_index` is hidden by default; callers must opt in with `include_correct=true`. `quiz-user-service` opts in for local demo scoring.
 - **Request caps**: quiz creation and leaderboard fetches are bounded to a maximum of 50 entries per request.
 - **OpenTriviaDB retries**: retryable upstream failures use bounded retry + backoff.
+- **Creation semantics tradeoff**: `GET /questions` may create quizzes in convenience mode; this is intentional for demo UX but not strict REST best practice. `POST /quizzes` remains the preferred explicit create path.
 - **SQLite choice**: chosen for minimal-friction local persistence. Throughput is intentionally limited by `SetMaxOpenConns(1)`.
 - **Cache lifecycle today**: in-memory cache has no TTL or size-based eviction/replacement policy; safe reset is service restart (DB remains source of truth). Production hardening should add TTL + bounded capacity + replacement policy (for example, LRU/LFU).
 

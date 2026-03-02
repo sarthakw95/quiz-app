@@ -62,6 +62,9 @@ func TestGetQuizQuestionsBuildsQueryAndParsesResponse(t *testing.T) {
 		if query.Get("quiz_id") != "quiz-123" {
 			t.Fatalf("quiz_id query = %q", query.Get("quiz_id"))
 		}
+		if query.Get("include_correct") != "true" {
+			t.Fatalf("include_correct query = %q", query.Get("include_correct"))
+		}
 		if query.Get("create_if_missing") != "true" {
 			t.Fatalf("create_if_missing query = %q", query.Get("create_if_missing"))
 		}

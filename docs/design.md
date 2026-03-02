@@ -44,6 +44,13 @@ This document focuses on why the project is structured the way it is and what tr
 2. Duplicate submissions are returned as `already_answered`.
 3. Existing stored result is reused so client can reconcile local state.
 
+### Create-via-GET tradeoff
+
+1. `GET /questions` supports convenience creation when `quiz_id` is omitted or `create_if_missing=true`.
+2. This simplifies the interactive demo flow and reduces client round trips.
+3. Tradeoff: creating resources via `GET` is not strict REST best practice because `GET` is expected to be read-only/idempotent.
+4. `POST /quizzes` is retained as the explicit, REST-aligned create path and can be used instead.
+
 ### Client-side score handling (current mode)
 
 1. User client handles score UX using question correctness metadata.
@@ -56,7 +63,7 @@ This document focuses on why the project is structured the way it is and what tr
 ### Fetch questions
 
 1. Request enters HTTP handler.
-2. Service resolves quiz by ID or creates one.
+2. Service resolves quiz by ID or creates one (depending on query parameters and existence).
 3. On create, service calls OpenTriviaDB and stores quiz/questions in SQLite.
 4. Response is returned and cache may be warmed.
 
@@ -80,7 +87,7 @@ This document focuses on why the project is structured the way it is and what tr
 1. Single-process deployment (no distributed cache coherence or cross-node coordination).
 2. Small concurrent user volume is expected; this is not tuned or load-tested for high-QPS traffic.
 3. Username is an unauthenticated logical identifier, not a verified identity.
-4. User client is trusted in current mode (it receives `correct_index` and computes local score UX).
+4. User client is trusted in current mode (it requests `include_correct=true`, receives `correct_index`, and computes local score UX).
 5. `POST /responses` without `quiz_id` falls back to in-memory bank validation and is intentionally non-persistent.
 
 ## Failure Modes and Current Behavior
@@ -104,7 +111,7 @@ This document focuses on why the project is structured the way it is and what tr
   - Even when panic does not occur, stale ordering/snapshots are possible.
   - SQLite remains source of truth for uncached reads.
 7. Adversarial client behavior:
-  - Current API intentionally exposes `correct_index` to simplify demo client UX, so a malicious client can submit only correct answers and inflate leaderboard score.
+  - `correct_index` is hidden by default, but any caller can still request `include_correct=true`; this can be abused to submit only correct answers and inflate leaderboard score.
   - User identity is unauthenticated (`username` is caller-provided), so clients can impersonate another username.
   - Current behavior is "trust-the-client" by design for demo scope; production hardening requires server-only scoring visibility and authenticated identities.
 8. Long-running cache growth:
