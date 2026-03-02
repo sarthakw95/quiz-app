@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	defaultQuestionCount = 10
-	defaultListLimit     = 10
+	defaultQuestionCount    = 10
+	defaultLeaderboardLimit = 10
+	defaultListLimit        = 10
+	maxQuestionCount        = 50
+	maxLeaderboardLimit     = 50
 )
 
 func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
@@ -28,7 +31,7 @@ func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 	quizID := strings.TrimSpace(r.URL.Query().Get("quiz_id"))
 	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	createIfMissing := parseBoolParam(r, "create_if_missing")
-	questionCount, err := parseIntParam(r, "question_count", defaultQuestionCount)
+	questionCount, err := parseQuestionCountParam(r, "question_count", defaultQuestionCount, maxQuestionCount)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return
@@ -150,7 +153,9 @@ func (a *API) HandleCreateQuiz(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	metadata, err := a.service.CreateQuiz(r.Context(), request.QuestionCount)
+	questionCount := normalizeQuestionCount(request.QuestionCount, defaultQuestionCount, maxQuestionCount)
+
+	metadata, err := a.service.CreateQuiz(r.Context(), questionCount)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, errorResponse{Error: "failed to create quiz"})
 		return
@@ -165,49 +170,6 @@ func (a *API) HandleCreateQuiz(w http.ResponseWriter, r *http.Request) {
 		QuizID:        metadata.QuizID,
 		QuestionCount: metadata.QuestionCount,
 		CreatedAt:     metadata.CreatedAt,
-	})
-}
-
-func (a *API) HandleQuizQuestions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, http.MethodGet)
-		return
-	}
-	if a.service == nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "quiz service unavailable"})
-		return
-	}
-
-	quizID := strings.TrimSpace(r.PathValue("quiz_id"))
-	username := strings.TrimSpace(r.URL.Query().Get("username"))
-	createIfMissing := parseBoolParam(r, "create_if_missing")
-	questionCount, err := parseIntParam(r, "question_count", defaultQuestionCount)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
-		return
-	}
-
-	metadata, questions, serviceErr := a.service.GetQuizQuestions(r.Context(), quizID, createIfMissing, questionCount)
-	if serviceErr != nil {
-		writeServiceError(w, serviceErr)
-		return
-	}
-
-	a.bank.AddBuiltQuestions(questions)
-
-	var attemptScores map[string]float64
-	if username != "" {
-		attemptScores, err = a.service.GetAttemptScores(r.Context(), metadata.QuizID, username)
-		if err != nil {
-			writeServiceError(w, err)
-			return
-		}
-	}
-
-	writeJSON(w, http.StatusOK, questionsResponse{
-		QuizID:        metadata.QuizID,
-		QuestionCount: len(questions),
-		Questions:     toQuestionResponses(questions, attemptScores),
 	})
 }
 
@@ -227,7 +189,7 @@ func (a *API) HandleLeaderboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit, err := parseLeaderboardLimit(r, 10)
+	limit, err := parseLeaderboardLimit(r, defaultLeaderboardLimit, maxLeaderboardLimit)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: err.Error()})
 		return

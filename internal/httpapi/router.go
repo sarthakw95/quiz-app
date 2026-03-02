@@ -25,7 +25,6 @@ func NewRouterWithOptions(service *quiz.Service, bank *quiz.Bank, options Router
 	mux.HandleFunc("/responses", api.HandleResponses)
 	mux.HandleFunc("/quizzes", api.HandleCreateQuiz)
 	mux.HandleFunc("/quizzes/active", api.HandleActiveQuizzes)
-	mux.HandleFunc("/quizzes/{quiz_id}/questions", api.HandleQuizQuestions)
 	mux.HandleFunc("/quizzes/{quiz_id}/leaderboard", api.HandleLeaderboard)
 
 	if !options.Debug {

@@ -28,19 +28,47 @@ func TestParseIntParam(t *testing.T) {
 	}
 }
 
+func TestParseQuestionCountParamCapsAtMax(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/questions?question_count=75", nil)
+	got, err := parseQuestionCountParam(req, "question_count", 10, 50)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 50 {
+		t.Fatalf("capped parseQuestionCountParam = %d, want 50", got)
+	}
+}
+
+func TestNormalizeQuestionCount(t *testing.T) {
+	if got := normalizeQuestionCount(0, 10, 50); got != 10 {
+		t.Fatalf("default normalizeQuestionCount = %d, want 10", got)
+	}
+	if got := normalizeQuestionCount(200, 10, 50); got != 50 {
+		t.Fatalf("capped normalizeQuestionCount = %d, want 50", got)
+	}
+	if got := normalizeQuestionCount(25, 10, 50); got != 25 {
+		t.Fatalf("passthrough normalizeQuestionCount = %d, want 25", got)
+	}
+}
+
 func TestParseLeaderboardLimit(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/leaderboard", nil)
-	if got, err := parseLeaderboardLimit(req, 10); err != nil || got != 10 {
+	if got, err := parseLeaderboardLimit(req, 10, 50); err != nil || got != 10 {
 		t.Fatalf("default parseLeaderboardLimit = (%d, %v), want (10, nil)", got, err)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/leaderboard?limit=-1", nil)
-	if got, err := parseLeaderboardLimit(req, 10); err != nil || got != -1 {
-		t.Fatalf("negative parseLeaderboardLimit = (%d, %v), want (-1, nil)", got, err)
+	if got, err := parseLeaderboardLimit(req, 10, 50); err != nil || got != 50 {
+		t.Fatalf("negative parseLeaderboardLimit = (%d, %v), want (50, nil)", got, err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/leaderboard?limit=500", nil)
+	if got, err := parseLeaderboardLimit(req, 10, 50); err != nil || got != 50 {
+		t.Fatalf("capped parseLeaderboardLimit = (%d, %v), want (50, nil)", got, err)
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/leaderboard?limit=abc", nil)
-	if _, err := parseLeaderboardLimit(req, 10); err == nil {
+	if _, err := parseLeaderboardLimit(req, 10, 50); err == nil {
 		t.Fatalf("expected integer validation error")
 	}
 }

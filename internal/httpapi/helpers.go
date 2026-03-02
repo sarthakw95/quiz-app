@@ -62,7 +62,28 @@ func parseIntParam(r *http.Request, key string, defaultValue int) (int, error) {
 	return parsed, nil
 }
 
-func parseLeaderboardLimit(r *http.Request, defaultValue int) (int, error) {
+func parseQuestionCountParam(r *http.Request, key string, defaultValue, maxValue int) (int, error) {
+	parsed, err := parseIntParam(r, key, defaultValue)
+	if err != nil {
+		return 0, err
+	}
+	if parsed > maxValue {
+		return maxValue, nil
+	}
+	return parsed, nil
+}
+
+func normalizeQuestionCount(value, defaultValue, maxValue int) int {
+	if value <= 0 {
+		value = defaultValue
+	}
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func parseLeaderboardLimit(r *http.Request, defaultValue, maxValue int) (int, error) {
 	value := strings.TrimSpace(r.URL.Query().Get("limit"))
 	if value == "" {
 		return defaultValue, nil
@@ -72,7 +93,13 @@ func parseLeaderboardLimit(r *http.Request, defaultValue int) (int, error) {
 	if err != nil {
 		return 0, errors.New("limit must be an integer")
 	}
-	// <=0 means "entire leaderboard".
+	if parsed <= 0 {
+		// Preserve "all" semantics by mapping non-positive values to the cap.
+		return maxValue, nil
+	}
+	if parsed > maxValue {
+		return maxValue, nil
+	}
 	return parsed, nil
 }
 
