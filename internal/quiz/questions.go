@@ -63,7 +63,7 @@ func BuildQuestions(raw []opentdb.RawQuestion) []Question {
 	questions := make([]Question, 0, len(raw))
 	for _, item := range raw {
 		question := buildQuestion(item)
-		question.QuestionID = makeQuestionID(question)
+		question.QuestionID = MakeQuestionID(question)
 		questions = append(questions, question)
 	}
 	return questions
@@ -74,7 +74,7 @@ func (b *Bank) AddQuestions(raw []opentdb.RawQuestion) []Question {
 
 	for _, item := range raw {
 		question := buildQuestion(item)
-		question.QuestionID = makeQuestionID(question)
+		question.QuestionID = MakeQuestionID(question)
 		b.questions.Store(question.QuestionID, question)
 		questions = append(questions, question)
 	}
@@ -85,7 +85,7 @@ func (b *Bank) AddQuestions(raw []opentdb.RawQuestion) []Question {
 func (b *Bank) AddBuiltQuestions(questions []Question) {
 	for _, question := range questions {
 		if question.QuestionID == "" {
-			question.QuestionID = makeQuestionID(question)
+			question.QuestionID = MakeQuestionID(question)
 		}
 		b.questions.Store(question.QuestionID, question)
 	}
@@ -121,7 +121,7 @@ func (b *Bank) EvaluateResponses(responses []SubmittedResponse) []ResponseResult
 			continue
 		}
 
-		letter := normalizeLetter(response.Answer)
+		letter := NormalizeLetter(response.Answer)
 		if letter == "" {
 			results = append(results, ResponseResult{
 				QuestionID: response.QuestionID,
@@ -160,7 +160,9 @@ func ToPublicQuestions(questions []Question) []PublicQuestion {
 	return public
 }
 
-func makeQuestionID(question Question) string {
+// MakeQuestionID generates a deterministic question ID from prompt + option text.
+// Option ordering is intentionally part of the key for this project.
+func MakeQuestionID(question Question) string {
 	const hashChars = 12
 
 	var keyBuilder strings.Builder
@@ -175,7 +177,8 @@ func makeQuestionID(question Question) string {
 	return "q_" + encoded[:hashChars]
 }
 
-func normalizeLetter(answer string) string {
+// NormalizeLetter trims and uppercases an answer and returns only single-letter values.
+func NormalizeLetter(answer string) string {
 	letter := strings.ToUpper(strings.TrimSpace(answer))
 	if len(letter) != 1 {
 		return ""

@@ -34,3 +34,11 @@ Commands:
 5. `exit`
 
 If `play <quiz_id>` uses a missing quiz id, the CLI prompts `yes/no`, creates a quiz with that same `quiz_id` when confirmed, and prints the quiz id before starting.
+
+---
+
+Copyright (c) 2026 Sarthak Wahal
+
+All rights reserved.
+
+This repository is published for evaluation and demonstration purposes only.

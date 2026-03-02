@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -260,7 +259,7 @@ func runPlayWithPayload(reader *bufio.Reader, out io.Writer, client *HTTPClient,
 				newScore += 1.0
 				fmt.Fprintln(out, "Correct!")
 			} else {
-				fmt.Fprintln(out, "Wrong.")
+				fmt.Fprintf(out, "Wrong. Correct answer: %s\n", correctAnswerDisplay(question))
 			}
 
 			fireAndForgetPersistence(client, payload.QuizID, username, question.QuestionID, answer)
@@ -278,7 +277,6 @@ func runPlayWithPayload(reader *bufio.Reader, out io.Writer, client *HTTPClient,
 	}
 	return nil
 }
-
 func fireAndForgetPersistence(client *HTTPClient, quizID, username, questionID, answer string) {
 	// Intentional tradeoff: best-effort persistence per question to reduce loss on mid-quiz disconnects.
 	// These async writes can complete out of order, but each (quiz,question,user) key is idempotent on server.
@@ -287,92 +285,4 @@ func fireAndForgetPersistence(client *HTTPClient, quizID, username, questionID, 
 		defer cancel()
 		_ = client.PersistSingleResponse(ctx, quizID, username, questionID, answer)
 	}()
-}
-
-func promptAnswer(reader *bufio.Reader, out io.Writer, optionCount int) (string, bool) {
-	if optionCount < 1 {
-		return "", false
-	}
-
-	maxLetter := byte('A' + optionCount - 1)
-	fmt.Fprintf(out, "Your answer (A-%c): ", maxLetter)
-
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return "", false
-	}
-
-	answer := strings.ToUpper(strings.TrimSpace(line))
-	if len(answer) != 1 {
-		return "", false
-	}
-	letter := answer[0]
-	if letter < 'A' || letter > maxLetter {
-		return "", false
-	}
-
-	return answer, true
-}
-
-func printHelp(out io.Writer) {
-	fmt.Fprintln(out, "Commands:")
-	fmt.Fprintln(out, "  help")
-	fmt.Fprintln(out, "  quizzes [limit]")
-	fmt.Fprintln(out, "  leaderboard <quiz_id> [limit]")
-	fmt.Fprintln(out, "  play <quiz_id>")
-	fmt.Fprintln(out, "  exit")
-}
-
-func parsePositiveLimit(args []string, index int, defaultValue int) (int, error) {
-	if len(args) <= index {
-		return defaultValue, nil
-	}
-
-	value, err := strconv.Atoi(args[index])
-	if err != nil || value <= 0 {
-		return 0, errors.New("must be a positive integer")
-	}
-	return value, nil
-}
-
-func parseSignedLimit(args []string, index int, defaultValue int) (int, error) {
-	if len(args) <= index {
-		return defaultValue, nil
-	}
-
-	value, err := strconv.Atoi(args[index])
-	if err != nil {
-		return 0, errors.New("must be an integer")
-	}
-	return value, nil
-}
-
-func formatScore(score float64) string {
-	return strconv.FormatFloat(score, 'f', -1, 64)
-}
-
-func promptYesNo(reader *bufio.Reader, out io.Writer, prompt string) (bool, error) {
-	for {
-		fmt.Fprint(out, prompt)
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return false, err
-		}
-		answer := strings.ToLower(strings.TrimSpace(line))
-		switch answer {
-		case "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		default:
-			fmt.Fprintln(out, "Please answer yes or no.")
-		}
-	}
-}
-
-func describeClientError(err error, serverURL string) error {
-	if errors.Is(err, ErrServiceUnavailable) {
-		return fmt.Errorf("quiz service unavailable at %s", serverURL)
-	}
-	return err
 }

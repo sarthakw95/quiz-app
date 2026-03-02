@@ -64,8 +64,8 @@ func TestMakeQuestionIDDiffersWhenOptionOrderDiffers(t *testing.T) {
 		},
 	}
 
-	id1 := makeQuestionID(q1)
-	id2 := makeQuestionID(q2)
+	id1 := MakeQuestionID(q1)
+	id2 := MakeQuestionID(q2)
 	if id1 == id2 {
 		t.Fatalf("expected different IDs for different option ordering, got %q", id1)
 	}
@@ -128,8 +128,8 @@ func TestNormalizeLetter(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := normalizeLetter(tc.input); got != tc.want {
-				t.Fatalf("normalizeLetter(%q) = %q, want %q", tc.input, got, tc.want)
+			if got := NormalizeLetter(tc.input); got != tc.want {
+				t.Fatalf("NormalizeLetter(%q) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}

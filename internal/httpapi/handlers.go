@@ -5,9 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
-	"time"
 
 	"quiz-app/internal/quiz"
 )
@@ -16,83 +14,6 @@ const (
 	defaultQuestionCount = 10
 	defaultListLimit     = 10
 )
-
-type API struct {
-	bank    *quiz.Bank
-	service *quiz.Service
-}
-
-type questionsResponse struct {
-	QuizID        string             `json:"quiz_id"`
-	QuestionCount int                `json:"question_count"`
-	Questions     []questionResponse `json:"questions"`
-}
-
-type questionResponse struct {
-	QuestionID    string        `json:"question_id"`
-	Question      string        `json:"question"`
-	Options       []quiz.Option `json:"options"`
-	CorrectIndex  int           `json:"correct_index"`
-	AttemptStatus string        `json:"attempt_status"`
-	AttemptScore  *float64      `json:"attempt_score,omitempty"`
-}
-
-type responsesRequest struct {
-	QuizID    string                   `json:"quiz_id,omitempty"`
-	Username  string                   `json:"username,omitempty"`
-	Responses []quiz.SubmittedResponse `json:"responses"`
-}
-
-type responsesResponse struct {
-	Results  []quiz.ResponseResult `json:"results"`
-	Warnings []string              `json:"warnings,omitempty"`
-}
-
-type createQuizRequest struct {
-	QuestionCount int `json:"question_count"`
-}
-
-type createQuizResponse struct {
-	QuizID        string    `json:"quiz_id"`
-	QuestionCount int       `json:"question_count"`
-	CreatedAt     time.Time `json:"created_at"`
-}
-
-type leaderboardEntryResponse struct {
-	Username         string    `json:"username"`
-	TotalScore       float64   `json:"total_score"`
-	AnsweredCount    int       `json:"answered_count"`
-	LastSubmissionAt time.Time `json:"last_submission_at"`
-}
-
-type leaderboardResponse struct {
-	QuizID      string                     `json:"quiz_id"`
-	Leaderboard []leaderboardEntryResponse `json:"leaderboard"`
-}
-
-type activeQuizResponse struct {
-	QuizID        string    `json:"quiz_id"`
-	QuestionCount int       `json:"question_count"`
-	CreatedAt     time.Time `json:"created_at"`
-}
-
-type activeQuizzesResponse struct {
-	Quizzes []activeQuizResponse `json:"quizzes"`
-}
-
-type errorResponse struct {
-	Error string `json:"error"`
-}
-
-func NewAPI(service *quiz.Service, bank *quiz.Bank) *API {
-	if bank == nil {
-		bank = quiz.NewBank()
-	}
-	return &API{
-		bank:    bank,
-		service: service,
-	}
-}
 
 func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -368,81 +289,4 @@ func (a *API) HandleActiveQuizzes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
-}
-
-func writeServiceError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, quiz.ErrQuizNotFound):
-		writeJSON(w, http.StatusNotFound, errorResponse{Error: "quiz not found"})
-	case errors.Is(err, quiz.ErrInvalidUsername):
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "username is required to link responses to leaderboard"})
-	default:
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "request failed"})
-	}
-}
-
-func toQuestionResponses(questions []quiz.Question, attemptScores map[string]float64) []questionResponse {
-	response := make([]questionResponse, 0, len(questions))
-	for _, question := range questions {
-		// Intentionally expose correct_index because the current user client scores
-		// locally and persists answers asynchronously. This is simpler for this demo
-		// but not suitable for adversarial clients.
-		item := questionResponse{
-			QuestionID:    question.QuestionID,
-			Question:      question.Question,
-			Options:       question.Options,
-			CorrectIndex:  question.CorrectIndex,
-			AttemptStatus: "not_attempted",
-		}
-		if score, ok := attemptScores[question.QuestionID]; ok {
-			scoreCopy := score
-			item.AttemptScore = &scoreCopy
-			item.AttemptStatus = "already_attempted"
-		}
-		response = append(response, item)
-	}
-	return response
-}
-
-func parseBoolParam(r *http.Request, key string) bool {
-	value := strings.ToLower(strings.TrimSpace(r.URL.Query().Get(key)))
-	return value == "1" || value == "true" || value == "yes"
-}
-
-func parseIntParam(r *http.Request, key string, defaultValue int) (int, error) {
-	value := strings.TrimSpace(r.URL.Query().Get(key))
-	if value == "" {
-		return defaultValue, nil
-	}
-
-	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		return 0, errors.New(key + " must be a positive integer")
-	}
-	return parsed, nil
-}
-
-func parseLeaderboardLimit(r *http.Request, defaultValue int) (int, error) {
-	value := strings.TrimSpace(r.URL.Query().Get("limit"))
-	if value == "" {
-		return defaultValue, nil
-	}
-
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, errors.New("limit must be an integer")
-	}
-	// <=0 means "entire leaderboard".
-	return parsed, nil
-}
-
-func writeMethodNotAllowed(w http.ResponseWriter, allowedMethod string) {
-	w.Header().Set("Allow", allowedMethod)
-	writeJSON(w, http.StatusMethodNotAllowed, errorResponse{Error: "method not allowed"})
-}
-
-func writeJSON(w http.ResponseWriter, statusCode int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(payload)
 }

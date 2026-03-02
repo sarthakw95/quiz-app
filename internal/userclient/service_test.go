@@ -149,3 +149,55 @@ func TestRunPlayWithPayloadCombinesOldAndNewScore(t *testing.T) {
 		t.Fatalf("expected combined score output, got: %s", text)
 	}
 }
+
+func TestRunPlayWithPayloadShowsCorrectAnswerWhenWrong(t *testing.T) {
+	persisted := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/responses" && r.Method == http.MethodPost {
+			select {
+			case persisted <- struct{}{}:
+			default:
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	payload := questionsResponse{
+		QuizID: "quiz-1",
+		Questions: []questionItem{
+			{
+				QuestionID:   "q-wrong",
+				Question:     "2 + 3?",
+				CorrectIndex: 1,
+				Options: []quiz.Option{
+					{Letter: "A", Text: "4"},
+					{Letter: "B", Text: "5"},
+				},
+			},
+		},
+	}
+
+	reader := bufio.NewReader(strings.NewReader("A\n"))
+	var out bytes.Buffer
+	err := runPlayWithPayload(reader, &out, client, "alice", payload, 3)
+	if err != nil {
+		t.Fatalf("runPlayWithPayload failed: %v", err)
+	}
+
+	select {
+	case <-persisted:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("expected async persistence call to /responses")
+	}
+
+	text := out.String()
+	if !strings.Contains(text, "Wrong. Correct answer: B. 5") {
+		t.Fatalf("expected correct answer output, got: %s", text)
+	}
+	if !strings.Contains(text, "Score: 0/1") {
+		t.Fatalf("expected wrong-answer score output, got: %s", text)
+	}
+}

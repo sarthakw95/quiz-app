@@ -1,4 +1,4 @@
-package quiz
+package sqlite
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"quiz-app/internal/quiz"
 )
 
 func newTestSQLiteStore(t *testing.T) *SQLiteStore {
@@ -27,13 +29,13 @@ func newTestSQLiteStore(t *testing.T) *SQLiteStore {
 	return store
 }
 
-func sampleQuestions() []Question {
-	return []Question{
+func sampleQuestions() []quiz.Question {
+	return []quiz.Question{
 		{
-			PublicQuestion: PublicQuestion{
+			PublicQuestion: quiz.PublicQuestion{
 				QuestionID: "q1",
 				Question:   "2+2?",
-				Options: []Option{
+				Options: []quiz.Option{
 					{Letter: "A", Text: "4"},
 					{Letter: "B", Text: "3"},
 				},
@@ -41,10 +43,10 @@ func sampleQuestions() []Question {
 			CorrectIndex: 0,
 		},
 		{
-			PublicQuestion: PublicQuestion{
+			PublicQuestion: quiz.PublicQuestion{
 				QuestionID: "q2",
 				Question:   "Sky color?",
-				Options: []Option{
+				Options: []quiz.Option{
 					{Letter: "A", Text: "Green"},
 					{Letter: "B", Text: "Blue"},
 				},
@@ -59,7 +61,7 @@ func TestSQLiteStoreCreateAndReadQuiz(t *testing.T) {
 	ctx := context.Background()
 
 	createdAt := time.Unix(1700000000, 123).UTC()
-	meta := QuizMetadata{
+	meta := quiz.QuizMetadata{
 		QuizID:        "quiz-1",
 		QuestionCount: 2,
 		CreatedAt:     createdAt,
@@ -97,11 +99,11 @@ func TestSQLiteStoreCreateAndReadQuiz(t *testing.T) {
 	}
 
 	_, err = store.GetQuizMetadata(ctx, "missing")
-	if !errors.Is(err, ErrQuizNotFound) {
+	if !errors.Is(err, quiz.ErrQuizNotFound) {
 		t.Fatalf("expected ErrQuizNotFound for missing metadata, got %v", err)
 	}
 	_, err = store.GetQuizQuestions(ctx, "missing")
-	if !errors.Is(err, ErrQuizNotFound) {
+	if !errors.Is(err, quiz.ErrQuizNotFound) {
 		t.Fatalf("expected ErrQuizNotFound for missing questions, got %v", err)
 	}
 }
@@ -110,7 +112,7 @@ func TestSQLiteStoreCreateQuizOverwriteClearsAttempts(t *testing.T) {
 	store := newTestSQLiteStore(t)
 	ctx := context.Background()
 
-	if err := store.CreateQuiz(ctx, QuizMetadata{
+	if err := store.CreateQuiz(ctx, quiz.QuizMetadata{
 		QuizID:        "quiz-1",
 		QuestionCount: 2,
 		CreatedAt:     time.Unix(1700000100, 0).UTC(),
@@ -118,22 +120,22 @@ func TestSQLiteStoreCreateQuizOverwriteClearsAttempts(t *testing.T) {
 		t.Fatalf("CreateQuiz initial failed: %v", err)
 	}
 
-	results, err := store.SubmitResponses(ctx, "quiz-1", "alice", []SubmittedResponse{
+	results, err := store.SubmitResponses(ctx, "quiz-1", "alice", []quiz.SubmittedResponse{
 		{QuestionID: "q1", Answer: "A"},
 	})
 	if err != nil {
 		t.Fatalf("SubmitResponses failed: %v", err)
 	}
-	if len(results) != 1 || results[0].Status != StatusCorrect {
+	if len(results) != 1 || results[0].Status != quiz.StatusCorrect {
 		t.Fatalf("unexpected submit results: %+v", results)
 	}
 
-	newQuestions := []Question{
+	newQuestions := []quiz.Question{
 		{
-			PublicQuestion: PublicQuestion{
+			PublicQuestion: quiz.PublicQuestion{
 				QuestionID: "q-new",
 				Question:   "New question",
-				Options: []Option{
+				Options: []quiz.Option{
 					{Letter: "A", Text: "Yes"},
 					{Letter: "B", Text: "No"},
 				},
@@ -141,7 +143,7 @@ func TestSQLiteStoreCreateQuizOverwriteClearsAttempts(t *testing.T) {
 			CorrectIndex: 0,
 		},
 	}
-	if err := store.CreateQuiz(ctx, QuizMetadata{
+	if err := store.CreateQuiz(ctx, quiz.QuizMetadata{
 		QuizID:        "quiz-1",
 		QuestionCount: 1,
 		CreatedAt:     time.Unix(1700000200, 0).UTC(),
@@ -170,7 +172,7 @@ func TestSQLiteStoreSubmitResponsesStatusesAndDuplicate(t *testing.T) {
 	store := newTestSQLiteStore(t)
 	ctx := context.Background()
 
-	if err := store.CreateQuiz(ctx, QuizMetadata{
+	if err := store.CreateQuiz(ctx, quiz.QuizMetadata{
 		QuizID:        "quiz-1",
 		QuestionCount: 2,
 		CreatedAt:     time.Unix(1700000300, 0).UTC(),
@@ -178,7 +180,7 @@ func TestSQLiteStoreSubmitResponsesStatusesAndDuplicate(t *testing.T) {
 		t.Fatalf("CreateQuiz failed: %v", err)
 	}
 
-	results, err := store.SubmitResponses(ctx, "quiz-1", "alice", []SubmittedResponse{
+	results, err := store.SubmitResponses(ctx, "quiz-1", "alice", []quiz.SubmittedResponse{
 		{QuestionID: "q1", Answer: "A"},
 		{QuestionID: "q2", Answer: "A"},
 		{QuestionID: "q2", Answer: "ZZ"},
@@ -191,20 +193,20 @@ func TestSQLiteStoreSubmitResponsesStatusesAndDuplicate(t *testing.T) {
 		t.Fatalf("expected 4 results, got %d", len(results))
 	}
 
-	if results[0].Status != StatusCorrect {
+	if results[0].Status != quiz.StatusCorrect {
 		t.Fatalf("expected q1 status correct, got %q", results[0].Status)
 	}
-	if results[1].Status != StatusIncorrect {
+	if results[1].Status != quiz.StatusIncorrect {
 		t.Fatalf("expected q2 status incorrect, got %q", results[1].Status)
 	}
-	if results[2].Status != StatusInvalidLetter {
+	if results[2].Status != quiz.StatusInvalidLetter {
 		t.Fatalf("expected invalid letter, got %q", results[2].Status)
 	}
-	if results[3].Status != StatusInvalidQuestion {
+	if results[3].Status != quiz.StatusInvalidQuestion {
 		t.Fatalf("expected invalid question, got %q", results[3].Status)
 	}
 
-	duplicate, err := store.SubmitResponses(ctx, "quiz-1", "alice", []SubmittedResponse{
+	duplicate, err := store.SubmitResponses(ctx, "quiz-1", "alice", []quiz.SubmittedResponse{
 		{QuestionID: "q1", Answer: "B"},
 	})
 	if err != nil {
@@ -213,7 +215,7 @@ func TestSQLiteStoreSubmitResponsesStatusesAndDuplicate(t *testing.T) {
 	if len(duplicate) != 1 {
 		t.Fatalf("expected 1 duplicate result, got %d", len(duplicate))
 	}
-	if duplicate[0].Status != StatusAlreadyAnswered {
+	if duplicate[0].Status != quiz.StatusAlreadyAnswered {
 		t.Fatalf("expected already_answered, got %q", duplicate[0].Status)
 	}
 	if duplicate[0].AttemptScore == nil || *duplicate[0].AttemptScore != 1.0 {
@@ -225,7 +227,7 @@ func TestSQLiteStoreGetLeaderboardOrdering(t *testing.T) {
 	store := newTestSQLiteStore(t)
 	ctx := context.Background()
 
-	if err := store.CreateQuiz(ctx, QuizMetadata{
+	if err := store.CreateQuiz(ctx, quiz.QuizMetadata{
 		QuizID:        "quiz-1",
 		QuestionCount: 2,
 		CreatedAt:     time.Unix(1700000400, 0).UTC(),
@@ -267,7 +269,7 @@ func TestSQLiteStoreGetLeaderboardOrdering(t *testing.T) {
 	}
 
 	_, err = store.GetLeaderboard(ctx, "missing")
-	if !errors.Is(err, ErrQuizNotFound) {
+	if !errors.Is(err, quiz.ErrQuizNotFound) {
 		t.Fatalf("expected ErrQuizNotFound for missing quiz leaderboard, got %v", err)
 	}
 }
@@ -276,7 +278,7 @@ func TestSQLiteStoreGetAttemptScores(t *testing.T) {
 	store := newTestSQLiteStore(t)
 	ctx := context.Background()
 
-	if err := store.CreateQuiz(ctx, QuizMetadata{
+	if err := store.CreateQuiz(ctx, quiz.QuizMetadata{
 		QuizID:        "quiz-1",
 		QuestionCount: 2,
 		CreatedAt:     time.Unix(1700000500, 0).UTC(),
@@ -284,7 +286,7 @@ func TestSQLiteStoreGetAttemptScores(t *testing.T) {
 		t.Fatalf("CreateQuiz failed: %v", err)
 	}
 
-	_, err := store.SubmitResponses(ctx, "quiz-1", "alice", []SubmittedResponse{
+	_, err := store.SubmitResponses(ctx, "quiz-1", "alice", []quiz.SubmittedResponse{
 		{QuestionID: "q1", Answer: "A"},
 		{QuestionID: "q2", Answer: "A"},
 	})
@@ -313,16 +315,16 @@ func TestSQLiteStoreListActiveQuizzes(t *testing.T) {
 
 	for idx := 0; idx < 12; idx++ {
 		quizID := "quiz-" + time.Unix(int64(idx), 0).UTC().Format("150405.000000000")
-		err := store.CreateQuiz(ctx, QuizMetadata{
+		err := store.CreateQuiz(ctx, quiz.QuizMetadata{
 			QuizID:        quizID,
 			QuestionCount: 1,
 			CreatedAt:     time.Unix(int64(100+idx), 0).UTC(),
-		}, []Question{
+		}, []quiz.Question{
 			{
-				PublicQuestion: PublicQuestion{
+				PublicQuestion: quiz.PublicQuestion{
 					QuestionID: "q" + quizID,
 					Question:   "Prompt",
-					Options: []Option{
+					Options: []quiz.Option{
 						{Letter: "A", Text: "One"},
 					},
 				},

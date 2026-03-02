@@ -12,6 +12,7 @@ import (
 	"quiz-app/internal/httpapi"
 	"quiz-app/internal/opentdb"
 	"quiz-app/internal/quiz"
+	sqlitestore "quiz-app/internal/quiz/sqlite"
 )
 
 func main() {
@@ -30,7 +31,7 @@ func main() {
 	debug := flag.Bool("debug", false, "enable debug request/response and outbound call logging")
 	flag.Parse()
 
-	store, err := quiz.NewSQLiteStore(*dbPath)
+	store, err := sqlitestore.NewSQLiteStore(*dbPath)
 	if err != nil {
 		log.Fatalf("failed to initialize sqlite store: %v", err)
 	}

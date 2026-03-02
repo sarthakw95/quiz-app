@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 const (
@@ -28,7 +29,28 @@ type apiResponse struct {
 	Results      []RawQuestion `json:"results"`
 }
 
+type Client struct {
+	httpClient *http.Client
+}
+
+var defaultHTTPClient = &http.Client{
+	Timeout: 5 * time.Second,
+}
+
+var defaultClient = NewClient(nil)
+
+func NewClient(httpClient *http.Client) *Client {
+	if httpClient == nil {
+		httpClient = defaultHTTPClient
+	}
+	return &Client{httpClient: httpClient}
+}
+
 func FetchQuestions(ctx context.Context, amount int) ([]RawQuestion, error) {
+	return defaultClient.FetchQuestions(ctx, amount)
+}
+
+func (c *Client) FetchQuestions(ctx context.Context, amount int) ([]RawQuestion, error) {
 	if amount <= 0 {
 		amount = defaultAmount
 	}
@@ -39,7 +61,7 @@ func FetchQuestions(ctx context.Context, amount int) ([]RawQuestion, error) {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
