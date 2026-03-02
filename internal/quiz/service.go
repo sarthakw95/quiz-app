@@ -20,6 +20,7 @@ type Service struct {
 	quizMetaCache    map[string]QuizMetadata
 	quizQuestions    map[string][]Question
 	leaderboardCache map[string]*leaderboardCache
+	attemptScores    map[string]map[string]float64
 }
 
 type leaderboardCache struct {
@@ -35,6 +36,7 @@ func NewService(quizzes QuizRepository, attempts AttemptRepository, fetcher Ques
 		quizMetaCache:    make(map[string]QuizMetadata),
 		quizQuestions:    make(map[string][]Question),
 		leaderboardCache: make(map[string]*leaderboardCache),
+		attemptScores:    make(map[string]map[string]float64),
 	}
 }
 
@@ -156,6 +158,7 @@ func (s *Service) SubmitResponses(ctx context.Context, quizID, username string, 
 	}
 
 	s.updateCachedLeaderboardAfterSubmission(metadata.QuizID, usernameNormalized, results)
+	s.updateCachedAttemptScoresAfterSubmission(metadata.QuizID, usernameNormalized, results)
 	return results, nil
 }
 
@@ -176,6 +179,29 @@ func (s *Service) GetLeaderboard(ctx context.Context, quizID string, limit int) 
 
 	s.setCachedLeaderboard(metadata.QuizID, entries)
 	return applyLeaderboardLimit(entries, limit), nil
+}
+
+func (s *Service) GetAttemptScores(ctx context.Context, quizID, username string) (map[string]float64, error) {
+	metadata, err := s.EnsureQuiz(ctx, quizID, false, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	usernameNormalized, err := normalizeUsername(username)
+	if err != nil {
+		return nil, err
+	}
+
+	if scores, ok := s.getCachedAttemptScores(metadata.QuizID, usernameNormalized); ok {
+		return scores, nil
+	}
+
+	scores, err := s.attempts.GetAttemptScores(ctx, metadata.QuizID, usernameNormalized)
+	if err != nil {
+		return nil, err
+	}
+	s.setCachedAttemptScores(metadata.QuizID, usernameNormalized, scores)
+	return scores, nil
 }
 
 func (s *Service) ListActiveQuizzes(ctx context.Context, limit int) ([]QuizMetadata, error) {
@@ -278,6 +304,18 @@ func (s *Service) getCachedLeaderboard(quizID string) ([]LeaderboardEntry, bool)
 	return cache.ordered, true
 }
 
+func (s *Service) getCachedAttemptScores(quizID, usernameNormalized string) (map[string]float64, bool) {
+	scores, ok := s.attemptScores[attemptScoresCacheKey(quizID, usernameNormalized)]
+	return scores, ok
+}
+
+func (s *Service) setCachedAttemptScores(quizID, usernameNormalized string, scores map[string]float64) {
+	if scores == nil {
+		scores = make(map[string]float64)
+	}
+	s.attemptScores[attemptScoresCacheKey(quizID, usernameNormalized)] = scores
+}
+
 func (s *Service) setCachedLeaderboard(quizID string, entries []LeaderboardEntry) {
 	indexByUser := make(map[string]int, len(entries))
 	for idx := range entries {
@@ -290,6 +328,26 @@ func (s *Service) setCachedLeaderboard(quizID string, entries []LeaderboardEntry
 	}
 }
 
+func (s *Service) updateCachedAttemptScoresAfterSubmission(quizID, usernameNormalized string, results []ResponseResult) {
+	scores, ok := s.getCachedAttemptScores(quizID, usernameNormalized)
+	if !ok {
+		return
+	}
+
+	for _, result := range results {
+		switch result.Status {
+		case StatusCorrect:
+			scores[result.QuestionID] = 1.0
+		case StatusIncorrect:
+			scores[result.QuestionID] = 0.0
+		case StatusAlreadyAnswered:
+			if result.AttemptScore != nil {
+				scores[result.QuestionID] = *result.AttemptScore
+			}
+		}
+	}
+}
+
 func (s *Service) updateCachedLeaderboardAfterSubmission(quizID, username string, results []ResponseResult) {
 	cache, ok := s.leaderboardCache[quizID]
 	if !ok || cache == nil {
@@ -297,12 +355,12 @@ func (s *Service) updateCachedLeaderboardAfterSubmission(quizID, username string
 	}
 
 	newAnswers := 0
-	scoreDelta := 0
+	scoreDelta := 0.0
 	for _, result := range results {
 		switch result.Status {
 		case StatusCorrect:
 			newAnswers++
-			scoreDelta++
+			scoreDelta += 1.0
 		case StatusIncorrect:
 			newAnswers++
 		}
@@ -330,6 +388,10 @@ func (s *Service) updateCachedLeaderboardAfterSubmission(quizID, username string
 	cache.ordered[idx].AnsweredCount += newAnswers
 	cache.ordered[idx].LastSubmissionAt = now
 	s.bubbleLeaderboard(cache, idx)
+}
+
+func attemptScoresCacheKey(quizID, usernameNormalized string) string {
+	return quizID + "::" + usernameNormalized
 }
 
 func (s *Service) bubbleLeaderboard(cache *leaderboardCache, idx int) {

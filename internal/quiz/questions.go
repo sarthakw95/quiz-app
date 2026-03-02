@@ -42,8 +42,9 @@ type SubmittedResponse struct {
 }
 
 type ResponseResult struct {
-	QuestionID string `json:"question_id"`
-	Status     string `json:"status"`
+	QuestionID   string   `json:"question_id"`
+	Status       string   `json:"status"`
+	AttemptScore *float64 `json:"attempt_score,omitempty"`
 }
 
 type Bank struct {

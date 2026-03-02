@@ -19,7 +19,7 @@ type QuizMetadata struct {
 
 type LeaderboardEntry struct {
 	Username         string    `json:"username"`
-	TotalScore       int       `json:"total_score"`
+	TotalScore       float64   `json:"total_score"`
 	AnsweredCount    int       `json:"answered_count"`
 	LastSubmissionAt time.Time `json:"last_submission_at"`
 }
@@ -35,4 +35,5 @@ type QuizRepository interface {
 type AttemptRepository interface {
 	SubmitResponses(ctx context.Context, quizID, usernameNormalized string, responses []SubmittedResponse) ([]ResponseResult, error)
 	GetLeaderboard(ctx context.Context, quizID string) ([]LeaderboardEntry, error)
+	GetAttemptScores(ctx context.Context, quizID, usernameNormalized string) (map[string]float64, error)
 }

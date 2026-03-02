@@ -75,7 +75,7 @@ func (s *SQLiteStore) initSchema(ctx context.Context) error {
 			question_id TEXT NOT NULL,
 			username_norm TEXT NOT NULL,
 			answer_letter TEXT NOT NULL,
-			score INTEGER NOT NULL,
+			score REAL NOT NULL,
 			submitted_at_unix INTEGER NOT NULL,
 			PRIMARY KEY (quiz_id, question_id, username_norm)
 		);`,
@@ -397,11 +397,12 @@ func (s *SQLiteStore) SubmitResponses(ctx context.Context, quizID, usernameNorma
 		}
 
 		status := StatusIncorrect
-		score := 0
+		score := 0.0
 		if answerIndex == key.correctIndex {
 			status = StatusCorrect
-			score = 1
+			score = 1.0
 		}
+		var attemptScore *float64
 
 		insertResult, err := tx.ExecContext(
 			ctx,
@@ -424,11 +425,26 @@ func (s *SQLiteStore) SubmitResponses(ctx context.Context, quizID, usernameNorma
 		}
 		if inserted == 0 {
 			status = StatusAlreadyAnswered
+
+			var existingScore float64
+			if err := tx.QueryRowContext(
+				ctx,
+				`SELECT score FROM attempts
+				 WHERE quiz_id = ? AND question_id = ? AND username_norm = ?
+				 LIMIT 1`,
+				quizID,
+				response.QuestionID,
+				usernameNormalized,
+			).Scan(&existingScore); err != nil {
+				return nil, err
+			}
+			attemptScore = &existingScore
 		}
 
 		results = append(results, ResponseResult{
-			QuestionID: response.QuestionID,
-			Status:     status,
+			QuestionID:   response.QuestionID,
+			Status:       status,
+			AttemptScore: attemptScore,
 		})
 	}
 
@@ -476,6 +492,35 @@ func (s *SQLiteStore) GetLeaderboard(ctx context.Context, quizID string) ([]Lead
 	}
 
 	return leaderboard, rows.Err()
+}
+
+func (s *SQLiteStore) GetAttemptScores(ctx context.Context, quizID, usernameNormalized string) (map[string]float64, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT question_id, score
+		 FROM attempts
+		 WHERE quiz_id = ? AND username_norm = ?`,
+		quizID,
+		usernameNormalized,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	scores := make(map[string]float64)
+	for rows.Next() {
+		var (
+			questionID string
+			score      float64
+		)
+		if err := rows.Scan(&questionID, &score); err != nil {
+			return nil, err
+		}
+		scores[questionID] = score
+	}
+
+	return scores, rows.Err()
 }
 
 func (s *SQLiteStore) String() string {

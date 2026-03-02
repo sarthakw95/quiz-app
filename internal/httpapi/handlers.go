@@ -23,9 +23,18 @@ type API struct {
 }
 
 type questionsResponse struct {
-	QuizID        string                `json:"quiz_id"`
-	QuestionCount int                   `json:"question_count"`
-	Questions     []quiz.PublicQuestion `json:"questions"`
+	QuizID        string             `json:"quiz_id"`
+	QuestionCount int                `json:"question_count"`
+	Questions     []questionResponse `json:"questions"`
+}
+
+type questionResponse struct {
+	QuestionID    string        `json:"question_id"`
+	Question      string        `json:"question"`
+	Options       []quiz.Option `json:"options"`
+	CorrectIndex  int           `json:"correct_index"`
+	AttemptStatus string        `json:"attempt_status"`
+	AttemptScore  *float64      `json:"attempt_score,omitempty"`
 }
 
 type responsesRequest struct {
@@ -51,7 +60,7 @@ type createQuizResponse struct {
 
 type leaderboardEntryResponse struct {
 	Username         string    `json:"username"`
-	TotalScore       int       `json:"total_score"`
+	TotalScore       float64   `json:"total_score"`
 	AnsweredCount    int       `json:"answered_count"`
 	LastSubmissionAt time.Time `json:"last_submission_at"`
 }
@@ -96,6 +105,7 @@ func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	quizID := strings.TrimSpace(r.URL.Query().Get("quiz_id"))
+	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	createIfMissing := parseBoolParam(r, "create_if_missing")
 	questionCount, err := parseIntParam(r, "question_count", defaultQuestionCount)
 	if err != nil {
@@ -129,10 +139,19 @@ func (a *API) HandleQuestions(w http.ResponseWriter, r *http.Request) {
 
 	a.bank.AddBuiltQuestions(questions)
 
+	var attemptScores map[string]float64
+	if quizID != "" && username != "" {
+		attemptScores, err = a.service.GetAttemptScores(r.Context(), metadata.QuizID, username)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusOK, questionsResponse{
 		QuizID:        metadata.QuizID,
 		QuestionCount: len(questions),
-		Questions:     quiz.ToPublicQuestions(questions),
+		Questions:     toQuestionResponses(questions, attemptScores),
 	})
 }
 
@@ -237,6 +256,7 @@ func (a *API) HandleQuizQuestions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	quizID := strings.TrimSpace(r.PathValue("quiz_id"))
+	username := strings.TrimSpace(r.URL.Query().Get("username"))
 	createIfMissing := parseBoolParam(r, "create_if_missing")
 	questionCount, err := parseIntParam(r, "question_count", defaultQuestionCount)
 	if err != nil {
@@ -252,10 +272,19 @@ func (a *API) HandleQuizQuestions(w http.ResponseWriter, r *http.Request) {
 
 	a.bank.AddBuiltQuestions(questions)
 
+	var attemptScores map[string]float64
+	if username != "" {
+		attemptScores, err = a.service.GetAttemptScores(r.Context(), metadata.QuizID, username)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusOK, questionsResponse{
 		QuizID:        metadata.QuizID,
 		QuestionCount: len(questions),
-		Questions:     quiz.ToPublicQuestions(questions),
+		Questions:     toQuestionResponses(questions, attemptScores),
 	})
 }
 
@@ -348,6 +377,26 @@ func writeServiceError(w http.ResponseWriter, err error) {
 	default:
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "request failed"})
 	}
+}
+
+func toQuestionResponses(questions []quiz.Question, attemptScores map[string]float64) []questionResponse {
+	response := make([]questionResponse, 0, len(questions))
+	for _, question := range questions {
+		item := questionResponse{
+			QuestionID:    question.QuestionID,
+			Question:      question.Question,
+			Options:       question.Options,
+			CorrectIndex:  question.CorrectIndex,
+			AttemptStatus: "not_attempted",
+		}
+		if score, ok := attemptScores[question.QuestionID]; ok {
+			scoreCopy := score
+			item.AttemptScore = &scoreCopy
+			item.AttemptStatus = "already_attempted"
+		}
+		response = append(response, item)
+	}
+	return response
 }
 
 func parseBoolParam(r *http.Request, key string) bool {
